@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Sequence
 from typing import Annotated
 from langchain_core.messages import BaseMessage
+from typing import Optional
 import operator
 
 class AgentState(BaseModel):
@@ -20,8 +21,8 @@ class AgentState(BaseModel):
     wikipedia_tool_response: str = ""
     ecocrop_search_response: str = ""
     rag_search_response: str = ""
-    ipcc_rag_agent_response: str = ""
-    general_rag_agent_response: str = ""    
+    ipcc_rag_agent_response: Optional[str] = None
+    general_rag_agent_response:  Optional[str] = None   
     df_list: list = [] # List of dataframes with climate data
     references: list = [] # List of references
     combine_agent_prompt_text: str = ""
