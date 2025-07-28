@@ -6,6 +6,7 @@ import logging
 import yaml
 import os
 import pandas as pd
+import numpy as np
 
 #streamlit packeges
 import streamlit as st
@@ -15,12 +16,18 @@ import folium
 # rag
 from rag import load_rag
 
+from xclim_ai.utils.paths import OUTPUT_RESULTS
+
+import uuid
+
 # climsight modules
 from stream_handler import StreamHandler
 from data_container import DataContainer
 from climsight_engine import normalize_longitude, llm_request, forming_request, location_request
 from extract_climatedata_functions import plot_climate_data
 from embedding_utils import create_embeddings
+
+# from xclim_ai import call_xclim_ai_direct
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +130,26 @@ def run_streamlit(config, api_key='', skip_llm_call=False, rag_activated=True, r
         with col1:         
             show_add_info = st.toggle("Provide additional information", value=False, help="""If this is activated you will see all the variables
                                     that were taken into account for the analysis as well as some plots.""")
-            smart_agent   = st.toggle("Use smart agent feature", value=False, help="""If this is activated together with Agent mode, ClimSight will make additional requests to Wikipedia and RAG, which can significantly increase response time.""")
+            smart_agent = st.toggle("Use smart agent feature", value=False, help="""If this is activated together with Agent mode, ClimSight will make additional requests to Wikipedia and RAG, which can significantly increase response time.""")
+
+        with st.expander("External Agents", expanded=False):
+
+            with st.container(border=True):
+
+                st.write("Xclim-AI Agent Configuration")
+
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    st.write("LLM Configuration")
+                    xclim_ai = st.toggle("Use XCLIM AI", value=False, help="""If this is activated, ClimSight will use the XCLIM AI agent to compute climate indicators.""")
+                    llm_summary = st.toggle("Use LLM summary", value=False, help="If this is activated, XCLIM AI will use LLM to summarize the results.")
+                
+                with col2:
+                    st.write("RAG Configuration")
+                    k = st.number_input("Number of indicators to compute", min_value=1, max_value=10, value=3, help="Number of climate indicators to compute using XCLIM AI.")
+                    max_iters = st.number_input("Maximum number of iterations", min_value=1, max_value=10, value=5, help="Maximum number of iterations for XCLIM AI to refine the results.")
+                
+
             # remove the llmModeKey_box from the form, as we tend to run the agent mode, direct mode is for development only
             #llmModeKey_box = st.radio("Select LLM mode 👉", key="visibility", options=["Direct", "Agent (experimental)"])
             # Include the API key input within the form only if it's not found in the environment
@@ -151,9 +177,16 @@ def run_streamlit(config, api_key='', skip_llm_call=False, rag_activated=True, r
             #config['llmModeKey'] = "direct_llm" if llmModeKey_box == "Direct" else "agent_llm"    
             config['show_add_info'] = show_add_info
             config['use_smart_agent'] = smart_agent
-            
-            # Creating a potential bottle neck here with loading the db inside the streamlit form, but it works fine 
-            # for the moment. Just making a note here for any potential problems that might arise later one. 
+            config['xclim_ai']['enabled'] = xclim_ai
+            config['xclim_ai']['k'] = k
+            config['xclim_ai']['max_iters'] = max_iters
+            config['xclim_ai']['llm_summary'] = llm_summary
+
+            # Generate an output_dir for xclim ai
+            config['xclim_ai']['output_dir'] = OUTPUT_RESULTS / f"{lat}_{lon}_{uuid.uuid4()}"
+
+            # Creating a potential bottle neck here with loading the db inside the streamlit form, but it works fine
+            # for the moment. Just making a note here for any potential problems that might arise later one.
             # Load RAG
             if not skip_llm_call and rag_activated:
                 try:
@@ -225,8 +258,12 @@ def run_streamlit(config, api_key='', skip_llm_call=False, rag_activated=True, r
                 #if not skip_llm_call:
                 #    output, input_params, content_message = llm_request(content_message, input_params, config, api_key, stream_handler, ipcc_rag_ready, ipcc_rag_db, general_rag_ready, general_rag_db, data_pocket)   
                 progress_area = st.empty()  # This will display progress updates
-                if show_add_info:
-                    tab_text, tab_add, tab_refs  = st.tabs(["Report", "Additional information", "References"])
+                if show_add_info and xclim_ai:
+                    tab_text, tab_add, tab_refs, tab_xclim  = st.tabs(["Report", "Additional information", "References", "XCLIM AI"])
+                elif show_add_info:
+                    tab_text, tab_add, tab_refs = st.tabs(["Report", "Additional information", "References"])
+                elif xclim_ai:
+                    tab_text, tab_refs, tab_xclim = st.tabs(["Report", "References", "XCLIM AI"])
                 else:
                     tab_text, tab_refs = st.tabs(["Report", "References"])
                 
@@ -256,6 +293,35 @@ def run_streamlit(config, api_key='', skip_llm_call=False, rag_activated=True, r
                                 general_rag_ready, general_rag_db, data_pocket,
                                 references=references
                             )
+                
+                if xclim_ai:
+                    with tab_xclim:
+                        st.subheader("**XCLIM AI**")
+                        st.info("This is an experimental feature that uses the XCLIM AI agent to compute climate indicators.")
+
+                        # Load final_output.md from config['xclim_ai']['output_dir']
+                        output_dir = config['xclim_ai']['output_dir']
+                        final_output_path = os.path.join(output_dir, "final_output.md")
+                        if os.path.exists(final_output_path):
+                            with open(final_output_path, 'r') as f:
+                                final_output = f.read()
+                            st.markdown(final_output)
+                        else:
+                            st.error(f"XCLIM AI output file not found: {final_output_path}. Please check the configuration and ensure the XCLIM AI agent has run successfully.")
+
+                        
+                        # Find all .png files in the output directory
+                        png_files = [f for f in os.listdir(output_dir) if f.endswith('.png')]
+                        if png_files:   
+                            st.subheader("**XCLIM AI Plots**")
+                            for png_file in png_files:
+                                png_path = os.path.join(output_dir, png_file)
+                                if os.path.exists(png_path):
+                                    st.image(png_path, caption=png_file)
+                                else:
+                                    st.error(f"Plot file not found: {png_path}. Please check the configuration and ensure the XCLIM AI agent has run successfully.")
+                        else:
+                            st.warning("No plots generated by XCLIM AI found in the output directory.")
             
                 # PLOTTING ADDITIONAL INFORMATION
                 if show_add_info: 

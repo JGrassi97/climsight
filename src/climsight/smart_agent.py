@@ -8,6 +8,9 @@ import os
 import ast
 from typing import Union
 
+# import Path
+from pathlib import Path
+
 from langchain.agents import AgentExecutor, create_openai_tools_agent, Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
@@ -38,6 +41,10 @@ from climsight_classes import AgentState
 import calendar
 import pandas as pd
 
+# Import necessary functions from xclim_ai
+from xclim_ai.utils.llm import initialize_llm
+from xclim_ai.core.agent import Xclim_AI
+
 def get_aitta_chat_model(model_name, **kwargs):
     aitta_url = 'https://api-climatedt-aitta.2.rahtiapp.fi'
     aitta_api_key = os.environ['AITTA_API_KEY']
@@ -48,6 +55,7 @@ def get_aitta_chat_model(model_name, **kwargs):
         openai_api_key=access_token,
         openai_api_base=model.openai_api_url,
         model_name=model.id,
+        model_kwargs={"parallel_tool_calls": False},
         **kwargs
     )
 
@@ -63,23 +71,27 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
     # System prompt
     prompt = f"""
     You are the smart agent of ClimSight. Your task is to retrieve necessary components of the climatic datasets based on the user's request.
-    You have access to tools called "get_data_components", "wikipedia_search", "RAG_search" and "ECOCROP_search" which you can use to retrieve the necessary environmental data components.
+    You have access to tools called "get_data_components", "wikipedia_search", "RAG_search", "ECOCROP_search" and "XCLIM_AI" which you can use to retrieve the necessary environmental data components.
     - "get_data_components" will retrieve the necessary data from the climatic datasets at the location of interest (latitude: {lat}, longitude: {lon}). It accepts an 'environmental_data' parameter to specify the type of data, and a 'months' parameter to specify which months to retrieve data for. The 'months' parameter is a list of month names (e.g., ['Jan', 'Feb', 'Mar']). If 'months' is not specified, data for all months will be retrieved.
     <Important> Call "get_data_components" tool multiple times if necessary, but only within one iteration, [chat_completion -> n * "get_data_components" -> chat_completion] after you recieve the necessary data from wikipedia_search and RAG_search. </Important>
     - "wikipedia_search" will help you determine the necessary data to retrieve with the get_data_components tool.
     - "RAG_search" can provide detailed information about environmental conditions for growing corn from your internal knowledge base.
     - "ECOCROP_search" will help you determine the specific environmental requirements for the crop of interest from ecocrop database.
+    - "XCLIM_AI" can provide climate indicators and projections for the specified location.
     call "ECOCROP_search" ONLY and ONLY if you sure that the user question is related to the crop of interest.
+
     """
     if config['model_type'] in ("local", "aitta"):
         prompt += f"""
 
-        <Important> Always call the wikipedia_search, RAG_search, and ECOCROP_search tools as needed, but only one at a time per turn.; it will help you determine the necessary data to retrieve with the get_data_components tool. At second step, call the get_data_components tool with the necessary data.</Important>
+        <Important> Always call the wikipedia_search, RAG_search, ECOCROP_search, and XCLIM_AI tools as needed, but only one at a time per turn.; it will help you determine the necessary data to retrieve with the get_data_components tool. At second step, call the get_data_components tool with the necessary data.</Important>
+        <Important> Call the XCLIM_AI tool at the very end of your iteration. Do not attempt to call it in parallel with other tools, as this will break the entire pipeline. Again, strictly, after you have obtained all of the information flow from other tools, call XCLIM_AI </Important>
         """
     else:
         prompt += f"""
 
-        <Important> ALWAYS call FIRST SIMULTANIOUSLY the wikipedia_search, RAG_search and "ECOCROP_search"; it will help you determine the necessary data to retrieve with the get_data_components tool. At second step, call the get_data_components tool with the necessary data.</Important>
+        <Important> ALWAYS call FIRST SIMULTANIOUSLY the wikipedia_search, RAG_search, ECOCROP_search, and XCLIM_AI tools; it will help you determine the necessary data to retrieve with the get_data_components tool. At second step, call the get_data_components tool with the necessary data.</Important>
+        <Important> Call the XCLIM_AI tool at the very end of your iteration. Do not attempt to call it in parallel with other tools, as this will break the entire pipeline. Again, strictly, after you have obtained all of the information flow from other tools, call XCLIM_AI </Important>
         """        
     prompt += f"""
 
@@ -308,12 +320,14 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
                 model_name=config['model_name_agents'],  # Match the exact model name you used
                 openai_api_key=api_key_local,
                 temperature  = temperature,
+                model_kwargs={"parallel_tool_calls": False}
             )                          
         elif config['model_type'] == "openai":
             llm = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_tools'],
-                temperature=temperature
+                temperature=temperature,
+                model_kwargs={"parallel_tool_calls": False}
             )
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(
@@ -518,12 +532,14 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
                 model_name=config['model_name_tools'],  # Match the exact model name you used
                 openai_api_key=api_key_local,
                 temperature  = temperature,
+                model_kwargs={"parallel_tool_calls": False}
             )                          
         elif config['model_type'] == "openai":
             llm = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_tools'],
-                temperature=temperature
+                temperature=temperature,
+                model_kwargs={"parallel_tool_calls": False}
             )        
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(
@@ -548,11 +564,93 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
         description="A tool to answer questions about environmental conditions related to user question. For search queries, provide expanded question. For example, if the question is about growing corn, the query should be 'limiting factors for corn growth'.",
         args_schema=RAGSearchArgs
     )
+
+
+    # XCLIM_AI
+    class XCLIM_AIArgs(BaseModel):
+        query: str = Field(
+            description=(
+                "A detailed, self-contained natural language query that synthesizes all available information to guide a climate indicator analysis for ANY sector. "
+                "The query MUST be structured to include: "
+                "1. The specific goal, derived from the user's question (e.g., assessing 'solar panel efficiency', 'ski season viability', 'wildfire risk', or 'crop suitability'). "
+                "2. The precise geographic location with coordinates (e.g., 'the region around Innsbruck, Austria at 47.26, 11.39'). "
+                "3. A concise summary of key climate patterns from any prior analysis. Include also numerical values when possible. This is critical. For example: 'Prior analysis shows a trend of increasing mean winter temperatures and decreasing total precipitation of about 20 mm/decade' or 'Summers are becoming significantly hotter with temeprature exceeding 35°C and drier with more frequent extreme heat events.' "
+                "This synthesized context is essential for the tool to select and correctly parameterize the most relevant climate indicators (e.g., 'global_horizontal_irradiance' for solar, 'frost_days' for agriculture, or 'fire_weather_index' for wildfire risk)."
+                " In the query, instruct the agent in such a way that it will give you back the information you need."
+            )
+        )
+
+
+    def process_xclim_ai(query: str) -> str:
+
+        if config['xclim_ai']['enabled']:
+            stream_handler.update_progress("Retrieving climate indicators and projections with XCLIM_AI...")
+
+            lat = float(state.input_params['lat'])
+            lon = float(state.input_params['lon'])
+
+            # Convert Agent Stat to dictionary
+            agent_state_dict = state.dict()
+
+            query_to_xclim_ai = f"Retrieve climate indicators and projections for the location ({lat}, {lon}) based on the following query: {query}."# \n\n\n You also have the following information from previous analysis. Use them to find the best indicators and to set the tools parameters properly: {agent_state_dict}"
+
+
+            try:
+
+                ds_kwargs = dict(lat=lat, lon=lon, start_date="1980-01-01", end_date="2050-12-31")
+
+                # Istanzia agente e lanc
+                import uuid
+                output_dir = Path(f"/Users/jacopograssi/xclim_data/output_results/{lat}_{lon}_{uuid.uuid4()}")
+                config['xclim_ai']['output_dir'] = output_dir
+
+                agent = Xclim_AI(
+                    llm,
+                    verbose=True,
+                    llm_summary=config['xclim_ai']['llm_summary'],
+                    k=config['xclim_ai']['k'],
+                    max_iters=config['xclim_ai']['max_iters'],
+                    dataset="openmeteo_standard_ensemble",
+                    output_dir=output_dir,
+                    **ds_kwargs
+                )
+
+                final_state = agent.run(query_to_xclim_ai)
+
+                return f"Climate indicators and projections for {lat}, {lon}:\n{final_state['tool_result']['output']}\n\n"
+
+            except Exception as e:
+                stream_handler.update_progress(f"Error retrieving climate indicators and projections: {str(e)}")
+                return f"Error retrieving climate indicators and projections: {str(e)}"
+    
+        else:
+            stream_handler.update_progress("Xclim AI is not enabled in the configuration.")
+            return "Xclim AI is not enabled in the configuration."
+
+    # Create the XCLIM_AI tool
+    xclim_ai_tool = StructuredTool.from_function(
+        func=process_xclim_ai,
+        name="XCLIM_AI",
+        description=(
+            "A powerful and versatile climate analysis tool that computes specialized climate indicators for any sector using the xclim library. "
+            "Use this tool to translate general user questions about climate impacts into quantitative, data-driven answers. "
+            "It is the best choice for a wide range of domains, including: "
+            "- Agriculture (e.g., 'Is this area suitable for growing wheat?'), "
+            "- Energy (e.g., 'What is the projected potential for solar power here?'), "
+            "- Infrastructure & Urban Planning (e.g., 'How will heat wave intensity change in this city?'), "
+            "- Tourism (e.g., 'Will there be enough snow for skiing in 2050?'), "
+            "- and Natural Hazard Assessment (e.g., 'Is the risk of drought increasing?'). "
+            "The tool MUST be given a detailed query summarizing the goal, location, and climate context."
+        ),
+        args_schema=XCLIM_AIArgs
+    )
+
     # [4] ECOCROP tool 
     class EcoCropSearchArgs(BaseModel):
         query: str = Field(
             description="The name of the crop to search for in the ECOCROP database."
         )
+
     def process_ecocrop_search(query: str) -> str:
 
         stream_handler.update_progress("Searching ECOCROP for related information with a smart agent...")
@@ -581,12 +679,14 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
                 model_name=config['model_name_tools'],  # Match the exact model name you used
                 openai_api_key=api_key_local,
                 temperature  = 0,
+                model_kwargs={"parallel_tool_calls": False}
             )                  
         elif config['model_type'] == "openai":        
             llm = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_tools'],
-                temperature=0.0
+                temperature=0.0,
+                model_kwargs={"parallel_tool_calls": False}
             )        
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(config['model_name_tools'], temperature = 0)
@@ -642,18 +742,20 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
             model_name=config['model_name_agents'],  # Match the exact model name you used
             openai_api_key=api_key_local,
             temperature  = 0,
+            model_kwargs={"parallel_tool_calls": False}
         )                  
     elif config['model_type'] == "openai":        
         llm = ChatOpenAI(
             openai_api_key=api_key,
             model_name=config['model_name_agents'],
-            temperature=0.0
+            temperature=0.0,
+            model_kwargs={"parallel_tool_calls": False}
         )
     elif config['model_type'] == "aitta":
         llm = get_aitta_chat_model(config['model_name_tools'], temperature = 0)
 
     # List of tools
-    tools = [data_extraction_tool, rag_tool,wikipedia_tool, ecocrop_tool]
+    tools = [data_extraction_tool, rag_tool,wikipedia_tool, ecocrop_tool, xclim_ai_tool]
 
     # Create the agent with the tools and prompt
     prompt += """\nadditional information:\n
@@ -712,6 +814,11 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
                 tool_outputs['get_data_components'] = observation.content
             else:
                 tool_outputs['get_data_components'] = observation
+        elif action.tool == 'XCLIM_AI':
+            if isinstance(observation, AIMessage):
+                tool_outputs['XCLIM_AI'] = observation.content
+            else:
+                tool_outputs['XCLIM_AI'] = observation
         elif action.tool == 'ECOCROP_search':
             if isinstance(observation, AIMessage):
                 tool_outputs['ECOCROP_search'] = observation.content
@@ -741,6 +848,8 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
         state.ecocrop_search_response = tool_outputs['ECOCROP_search']
     if 'RAG_search' in tool_outputs:
         state.rag_search_response = tool_outputs['RAG_search']
+    if 'XCLIM_AI' in tool_outputs:
+        state.xclim_ai_response = tool_outputs['XCLIM_AI']
         
     # Also store the agent's final answer
     smart_agent_response = result['output']
@@ -751,5 +860,6 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
         'wikipedia_tool_response': state.wikipedia_tool_response,
         'ecocrop_search_response': state.ecocrop_search_response,
         'rag_search_response': state.rag_search_response,
+        'xclim_ai_response': state.xclim_ai_response,
         'references': state.references
     }
