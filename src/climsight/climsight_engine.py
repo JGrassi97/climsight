@@ -641,24 +641,28 @@ def agent_llm_request(content_message, input_params, config, api_key, api_key_lo
         llm_intro = ChatOpenAI(
             openai_api_key=api_key,
             model_name=config['model_name_agents'],
-        )    
+            model_kwargs={"parallel_tool_calls": False},
+        )
         if ("o1" in config['model_name_combine_agent']) or ("o3" in config['model_name_combine_agent']):
             llm_combine_agent = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_combine_agent'],
                 max_tokens=100000,
-            )    
+                model_kwargs={"parallel_tool_calls": False},
+            )
         elif ("3.5" in config['model_name_combine_agent']):
             llm_combine_agent = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_combine_agent'],
-            )   
+                model_kwargs={"parallel_tool_calls": False},
+            )
         else:
             llm_combine_agent = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_combine_agent'],
                 max_tokens=16000,
-            )   
+                model_kwargs={"parallel_tool_calls": False},
+            )
     elif config['model_type'] == 'aitta':
         llm_intro = get_aitta_chat_model(config['model_name_agents'])
         llm_combine_agent = get_aitta_chat_model(
