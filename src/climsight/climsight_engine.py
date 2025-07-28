@@ -589,7 +589,6 @@ def direct_llm_request(content_message, input_params, config, api_key, stream_ha
         model_name=config['model_name'],
         streaming=True,
         callbacks=[stream_handler],
-        model_kwargs={"parallel_tool_calls": False}
     )
     if "o1" in config['model_name']:
         system_message_prompt = HumanMessagePromptTemplate.from_template(config['system_role'])
@@ -631,40 +630,34 @@ def agent_llm_request(content_message, input_params, config, api_key, api_key_lo
             openai_api_base="http://localhost:8000/v1",
             model_name=config['model_name_agents'],  # Match the exact model name you used
             openai_api_key=api_key_local,
-            model_kwargs={"parallel_tool_calls": False}
         )           
         llm_combine_agent = ChatOpenAI(
             openai_api_base="http://localhost:8000/v1",
             model_name=config['model_name_combine_agent'],  # Match the exact model name you used
             openai_api_key=api_key_local,
             max_tokens=16000,
-            model_kwargs={"parallel_tool_calls": False}
         )   
     elif config['model_type'] == "openai":
         llm_intro = ChatOpenAI(
             openai_api_key=api_key,
             model_name=config['model_name_agents'],
-            model_kwargs={"parallel_tool_calls": False}
         )    
         if ("o1" in config['model_name_combine_agent']) or ("o3" in config['model_name_combine_agent']):
             llm_combine_agent = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_combine_agent'],
                 max_tokens=100000,
-                model_kwargs={"parallel_tool_calls": False}
             )    
         elif ("3.5" in config['model_name_combine_agent']):
             llm_combine_agent = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_combine_agent'],
-                model_kwargs={"parallel_tool_calls": False}
             )   
         else:
             llm_combine_agent = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_combine_agent'],
                 max_tokens=16000,
-                model_kwargs={"parallel_tool_calls": False}
             )   
     elif config['model_type'] == 'aitta':
         llm_intro = get_aitta_chat_model(config['model_name_agents'])
@@ -1008,10 +1001,7 @@ def agent_llm_request(content_message, input_params, config, api_key, api_key_lo
             next: Literal["FINISH", "CONTINUE"]  # Accepts single value only
             final_answer: str = ""  
         if config['model_type'] == "openai":
-            structured_llm = llm_intro.with_structured_output(
-                routeResponse, 
-                method="function_calling",
-            )
+            structured_llm = llm_intro.with_structured_output(routeResponse, method="function_calling")
             chain = (
                 intro_prompt
                 | structured_llm

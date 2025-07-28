@@ -55,7 +55,6 @@ def get_aitta_chat_model(model_name, **kwargs):
         openai_api_key=access_token,
         openai_api_base=model.openai_api_url,
         model_name=model.id,
-        model_kwargs={"parallel_tool_calls": False},
         **kwargs
     )
 
@@ -320,14 +319,12 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
                 model_name=config['model_name_agents'],  # Match the exact model name you used
                 openai_api_key=api_key_local,
                 temperature  = temperature,
-                model_kwargs={"parallel_tool_calls": False}
             )                          
         elif config['model_type'] == "openai":
             llm = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_tools'],
-                temperature=temperature,
-                model_kwargs={"parallel_tool_calls": False}
+                temperature=temperature
             )
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(
@@ -532,14 +529,12 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
                 model_name=config['model_name_tools'],  # Match the exact model name you used
                 openai_api_key=api_key_local,
                 temperature  = temperature,
-                model_kwargs={"parallel_tool_calls": False}
             )                          
         elif config['model_type'] == "openai":
             llm = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_tools'],
-                temperature=temperature,
-                model_kwargs={"parallel_tool_calls": False}
+                temperature=temperature
             )        
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(
@@ -679,14 +674,12 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
                 model_name=config['model_name_tools'],  # Match the exact model name you used
                 openai_api_key=api_key_local,
                 temperature  = 0,
-                model_kwargs={"parallel_tool_calls": False}
             )                  
         elif config['model_type'] == "openai":        
             llm = ChatOpenAI(
                 openai_api_key=api_key,
                 model_name=config['model_name_tools'],
-                temperature=0.0,
-                model_kwargs={"parallel_tool_calls": False}
+                temperature=0.0
             )        
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(config['model_name_tools'], temperature = 0)
@@ -742,14 +735,12 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
             model_name=config['model_name_agents'],  # Match the exact model name you used
             openai_api_key=api_key_local,
             temperature  = 0,
-            model_kwargs={"parallel_tool_calls": False}
         )                  
     elif config['model_type'] == "openai":        
         llm = ChatOpenAI(
             openai_api_key=api_key,
             model_name=config['model_name_agents'],
-            temperature=0.0,
-            model_kwargs={"parallel_tool_calls": False}
+            temperature=0.0
         )
     elif config['model_type'] == "aitta":
         llm = get_aitta_chat_model(config['model_name_tools'], temperature = 0)

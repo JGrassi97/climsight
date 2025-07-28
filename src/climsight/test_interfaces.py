@@ -47,4 +47,4 @@ except KeyError as e:
 
 
 #run_streamlit(config, skip_llm_call=skip_llm_call)
-run_terminal(config, skip_llm_call=skip_llm_call)
+#run_terminal(config, skip_llm_call=skip_llm_call)

@@ -210,8 +210,7 @@ def request_llm_answers(question_answers, llm_model_gen, series = 'climsight'):
     
     llm_gen = ChatOpenAI(
         openai_api_key=api_key,
-        model_name=llm_model_gen,
-        model_kwargs={"parallel_tool_calls": False}
+        model_name=llm_model_gen
     )
     chain = (
         chat_prompt
@@ -282,7 +281,7 @@ def evaluate_answers(question_answers, climsight_answers, series, llm_model, eva
     Returns:
         dict : return the evaluation of the answers
     """
-    llm = ChatOpenAI(model=llm_model, api_key=api_key, model_kwargs={"parallel_tool_calls": False})
+    llm = ChatOpenAI(model=llm_model, api_key=api_key)
     custom_rag_prompt = PromptTemplate.from_template(evaluation_template)
  
     rag_chain = (
