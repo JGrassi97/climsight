@@ -11,3 +11,4 @@ rag_db/
 rag_articles/
 .*
 *.log
+*.egg-info

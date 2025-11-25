@@ -985,12 +985,6 @@ def agent_llm_request(content_message, input_params, config, api_key, api_key_lo
 
         Based on the above, respond accordingly.
         """
-        # - **FINISH**: Provide a final answer to end the conversation.
-        # - **CONTINUE**: Indicate that the process should proceed without a final answer at this stage.
-        # You must output your decision as a JSON object with two fields:
-
-        # Given this guidance, respond with either "FINISH" and the final answer, or "CONTINUE."
-        # """        
         intro_options = ["FINISH", "CONTINUE"]
         intro_prompt = ChatPromptTemplate.from_messages(
         [
@@ -1000,30 +994,24 @@ def agent_llm_request(content_message, input_params, config, api_key, api_key_lo
         class routeResponse(BaseModel):
             next: Literal["FINISH", "CONTINUE"]  # Accepts single value only
             final_answer: str = ""  
-        if config['model_type'] == "openai":
-            structured_llm = llm_intro.with_structured_output(routeResponse, method="function_calling")
-            chain = (
-                intro_prompt
-                | structured_llm
-            )
-            # Pass the dictionary to invoke
-            input = {"user_text": state.user}
-            response = chain.invoke(input)
-        elif config['model_type'] in ("local", "aitta"):
-            prompt_text = intro_prompt.format(user_text=state.user)
-            response_raw = llm_intro.invoke(prompt_text)
-            import re, json
-            match = re.search(r'\{.*?\}', response_raw.content if hasattr(response_raw, 'content') else str(response_raw), re.DOTALL)
-            if match:
-                try:
-                    parsed = json.loads(match.group())
-                    response = routeResponse(**parsed)
-                except Exception as e:
-                    logging.error(f"Failed to parse JSON from model output: {e}")
-                    raise RuntimeError("Invalid model output format")
-            else:
-                raise RuntimeError("No valid JSON found in model output")
-      
+
+        # --- UNIVERSAL APPROACH: always use direct prompt and parse JSON ---
+        prompt_text = intro_prompt.format(user_text=state.user)
+        response_raw = llm_intro.invoke(prompt_text)
+        import re, json
+        response_content = response_raw.content if hasattr(response_raw, 'content') else str(response_raw)
+        match = re.search(r'\{.*?\}', response_content, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+                response = routeResponse(**parsed)
+            except Exception as e:
+                logging.error(f"Failed to parse JSON from model output: {e}")
+                response = routeResponse(next="CONTINUE", final_answer="")
+        else:
+            logging.warning("No valid JSON found in model output, defaulting to CONTINUE")
+            response = routeResponse(next="CONTINUE", final_answer="")
+
         stream_handler.update_progress("Retrieve climate model data and search reports for relevant information ...")
 
         state.final_answer = response.final_answer

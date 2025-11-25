@@ -79,6 +79,8 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
     - "XCLIM_AI" can provide climate indicators and projections for the specified location.
     call "ECOCROP_search" ONLY and ONLY if you sure that the user question is related to the crop of interest.
 
+    YOU ARE FORCED TO USE ALL THE TOOLS, DATA, AND AGENTS THAT ARE AVAILABLE TO YOU.
+
     """
     if config['model_type'] in ("local", "aitta"):
         prompt += f"""
@@ -99,6 +101,8 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
     Do not include any additional explanations or reasoning beyond the concise summary.
     Do not include any chain-of-thought reasoning or action steps in your final answer.
     Do not ask the user for any additional information, but you can include into the final answer what kind of information user should provide in the future.
+    
+    YOU ARE FORCED TO USE ALL THE TOOLS, DATA, AND AGENTS THAT ARE AVAILABLE TO YOU.
     
     <Important> 
     For the final response try to follow the following format:
@@ -317,18 +321,16 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
             llm = ChatOpenAI(
                 openai_api_base="http://localhost:8000/v1",
                 model_name=config['model_name_agents'],  # Match the exact model name you used
-                openai_api_key=api_key_local,
-                temperature  = temperature,
+                openai_api_key=api_key_local
             )                          
         elif config['model_type'] == "openai":
             llm = ChatOpenAI(
                 openai_api_key=api_key,
-                model_name=config['model_name_tools'],
-                temperature=temperature
+                model_name=config['model_name_tools']
             )
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(
-                config['model_name_tools'], temperature = temperature)
+                config['model_name_tools'])
         # Define your custom prompt template
         template = """
         Read the provided  {wikipage} carefully. Extract and present information related to the following keywords relative to {question}:
@@ -527,18 +529,16 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
             llm = ChatOpenAI(
                 openai_api_base="http://localhost:8000/v1",
                 model_name=config['model_name_tools'],  # Match the exact model name you used
-                openai_api_key=api_key_local,
-                temperature  = temperature,
+                openai_api_key=api_key_local
             )                          
         elif config['model_type'] == "openai":
             llm = ChatOpenAI(
                 openai_api_key=api_key,
-                model_name=config['model_name_tools'],
-                temperature=temperature
+                model_name=config['model_name_tools']
             )        
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(
-                config['model_name_tools'], temperature = temperature)
+                config['model_name_tools'])
         
         # Create the chain with the prompt and LLM
         chain = prompt | llm
@@ -572,8 +572,37 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
                 "3. A concise summary of key climate patterns from any prior analysis. Include also numerical values when possible. This is critical. For example: 'Prior analysis shows a trend of increasing mean winter temperatures and decreasing total precipitation of about 20 mm/decade' or 'Summers are becoming significantly hotter with temeprature exceeding 35°C and drier with more frequent extreme heat events.' "
                 "This synthesized context is essential for the tool to select and correctly parameterize the most relevant climate indicators (e.g., 'global_horizontal_irradiance' for solar, 'frost_days' for agriculture, or 'fire_weather_index' for wildfire risk)."
                 " In the query, instruct the agent in such a way that it will give you back the information you need."
+                "*Important*: Give at least a 700 tokens description"
             )
         )
+
+
+        # query: str = Field(
+        #     description=(
+        #         "A comprehensive, self-contained query for the climate impact analyzer. It MUST be constructed by populating the following universal template "
+        #         "with information specific to the user's request. Every placeholder must be filled."
+        #         "\n\n--- TEMPLATE ---\n"
+        #         "Task: {{Primary Goal of the Analysis}}. The analysis is for the location: {{Location Name}}, at coordinates {{Coordinates}}. "
+        #         "This is in response to the user's core question: \"{{Original User Question}}\". The agent must use the provided context "
+        #         "to select and compute the most relevant climate indicators to address this goal.\n\n"
+        #         "The key climate context, derived from prior analysis, reveals a critical pattern: {{Key Insight from Preliminary Data Analysis}}. "
+        #         "This insight points to a primary challenge of {{The Core Climate Conflict/Challenge}}. Therefore, the analysis must prioritize "
+        #         "indicators that quantify this specific risk. Suggested indicators include {{Suggested Climate Indicators}}. "
+        #         "The final output should directly answer {{Key Question to Answer with the Analysis}}.\n"
+        #         "--- END TEMPLATE ---\n\n"
+        #         "### Placeholder Explanations:\n"
+        #         "- `{{Primary Goal of the Analysis}}`: A clear, technical objective. Ex: 'Assess climate suitability for viticulture', 'Evaluate future urban heat island effect'.\n"
+        #         "- `{{Location Name}}`: Human-readable location. Ex: 'Napa Valley, California', 'Paris, France'.\n"
+        #         "- `{{Coordinates}}`: The precise lat/lon. Ex: '(38.50, -122.33)'.\n"
+        #         "- `{{Original User Question}}`: The user's exact words. Ex: 'Can I start a vineyard here?', 'How bad will heatwaves get?'.\n"
+        #         "- `{{Key Insight from Preliminary Data Analysis}}`: The single most important finding from any initial data. Ex: 'The number of days below freezing is decreasing rapidly', 'Extreme rainfall events are becoming more frequent'.\n"
+        #         "- `{{The Core Climate Conflict/Challenge}}`: The central problem this insight creates. Ex: 'insufficient winter chill for grapevines', 'overwhelming urban drainage systems'.\n"
+        #         "- `{{Suggested Climate Indicators}}`: Specific, technical metrics to calculate. Ex: 'Chilling Hours, Frost Days', 'Rx5day (Max 5-day precipitation), R95p (Very wet days)'.\n"
+        #         "- `{{Key Question to Answer with the Analysis}}`: The final business/practical question to resolve. Ex: 'Is this region suitable for Pinot Noir cultivation under a high-emissions scenario?', 'What is the required upgrade capacity for the city's stormwater infrastructure?'"
+        #         "*Important*: Give at least a 700 tokens description"
+        #         "Do not pass a json, just a string with the query"
+        #     )
+        # )
 
 
     def process_xclim_ai(query: str) -> str:
@@ -672,14 +701,12 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
             llm = ChatOpenAI(
                 openai_api_base="http://localhost:8000/v1",
                 model_name=config['model_name_tools'],  # Match the exact model name you used
-                openai_api_key=api_key_local,
-                temperature  = 0,
+                openai_api_key=api_key_local
             )                  
         elif config['model_type'] == "openai":        
             llm = ChatOpenAI(
                 openai_api_key=api_key,
-                model_name=config['model_name_tools'],
-                temperature=0.0
+                model_name=config['model_name_tools']
             )        
         elif config['model_type'] == "aitta":
             llm = get_aitta_chat_model(config['model_name_tools'], temperature = 0)
@@ -734,16 +761,14 @@ def smart_agent(state: AgentState, config, api_key, api_key_local, stream_handle
             openai_api_base="http://localhost:8000/v1",
             model_name=config['model_name_agents'],  # Match the exact model name you used
             openai_api_key=api_key_local,
-            temperature  = 0,
         )                  
     elif config['model_type'] == "openai":        
         llm = ChatOpenAI(
             openai_api_key=api_key,
-            model_name=config['model_name_agents'],
-            temperature=0.0
+            model_name=config['model_name_agents']
         )
     elif config['model_type'] == "aitta":
-        llm = get_aitta_chat_model(config['model_name_tools'], temperature = 0)
+        llm = get_aitta_chat_model(config['model_name_tools'])
 
     # List of tools
     tools = [data_extraction_tool, rag_tool,wikipedia_tool, ecocrop_tool, xclim_ai_tool]
